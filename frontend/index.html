@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agentic Data Preprocessing Pipeline</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; padding: 20px; }
+        .container { max-width: 1200px; margin: 0 auto; background: white; border-radius: 16px; padding: 40px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
+        h1 { color: #333; margin-bottom: 30px; text-align: center; }
+        .upload-section { border: 3px dashed #667eea; border-radius: 12px; padding: 40px; text-align: center; margin-bottom: 30px; background: #f8f9ff; }
+        .upload-section.dragover { background: #e8ebff; border-color: #764ba2; }
+        #fileInput { display: none; }
+        .upload-btn { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 12px 30px; border: none; border-radius: 8px; cursor: pointer; font-size: 16px; font-weight: 600; transition: transform 0.2s; }
+        .upload-btn:hover { transform: scale(1.05); }
+        .upload-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .progress-section { margin: 30px 0; padding: 20px; background: #f0f0f0; border-radius: 8px; display: none; }
+        .progress-step { padding: 10px; margin: 5px 0; border-radius: 4px; display: flex; align-items: center; gap: 10px; }
+        .progress-step.pending { background: #e0e0e0; color: #666; }
+        .progress-step.in-progress { background: #fff3cd; color: #856404; }
+        .progress-step.completed { background: #d4edda; color: #155724; }
+        .progress-step.failed { background: #f8d7da; color: #721c24; }
+        .results-section { display: none; margin-top: 30px; }
+        .report-section { background: #f8f9ff; padding: 20px; border-radius: 8px; margin-bottom: 20px; }
+        .charts-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(400px, 1fr)); gap: 20px; margin: 20px 0; }
+        .chart-card { background: white; border-radius: 8px; padding: 15px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+        .chart-card img { width: 100%; border-radius: 4px; }
+        .chart-card h3 { margin: 10px 0 5px; color: #333; font-size: 14px; }
+        .chart-card p { color: #666; font-size: 12px; }
+        .download-section { display: flex; gap: 15px; margin-top: 20px; }
+        .download-btn { background: #28a745; color: white; padding: 12px 25px; border: none; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 600; text-decoration: none; display: inline-block; }
+        .download-btn:hover { background: #218838; }
+        .error-message { background: #f8d7da; color: #721c24; padding: 15px; border-radius: 8px; margin: 20px 0; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Data Preprocessing & Visualization Tool</h1>
+        <div class="upload-section" id="uploadSection">
+            <p style="margin-bottom: 20px; color: #666;">Upload your data file (.csv or .xlsx)</p>
+            <input type="file" id="fileInput" accept=".csv,.xlsx">
+            <button class="upload-btn" onclick="document.getElementById('fileInput').click()">Choose File</button>
+            <p id="fileName" style="margin-top: 15px; color: #666;"></p>
+            <button class="upload-btn" id="submitBtn" onclick="submitFile()" style="margin-top: 15px; display: none;">Process Data</button>
+        </div>
+        <div class="progress-section" id="progressSection">
+            <div class="progress-step pending" id="step1"><span>⏳</span> Understanding data...</div>
+            <div class="progress-step pending" id="step2"><span>⏳</span> Planning preprocessing...</div>
+            <div class="progress-step pending" id="step3"><span>⏳</span> Cleaning data...</div>
+            <div class="progress-step pending" id="step4"><span>⏳</span> Planning charts...</div>
+            <div class="progress-step pending" id="step5"><span>⏳</span> Generating charts...</div>
+        </div>
+        <div class="results-section" id="resultsSection">
+            <div class="report-section" id="reportSection"></div>
+            <h2>Generated Charts</h2>
+            <div class="charts-grid" id="chartsGrid"></div>
+            <div class="download-section">
+                <a class="download-btn" id="downloadCsv" href="#">Download CSV</a>
+                <a class="download-btn" id="downloadXlsx" href="#">Download XLSX</a>
+            </div>
+        </div>
+        <div class="error-message" id="errorSection" style="display: none;"></div>
+    </div>
+    <script>
+        let selectedFile = null;
+        document.getElementById('fileInput').addEventListener('change', (e) => {
+            selectedFile = e.target.files[0];
+            if (selectedFile) {
+                document.getElementById('fileName').textContent = selectedFile.name;
+                document.getElementById('submitBtn').style.display = 'inline-block';
+            }
+        });
+        async function submitFile() {
+            if (!selectedFile) return;
+            const formData = new FormData();
+            formData.append('file', selectedFile);
+            document.getElementById('progressSection').style.display = 'block';
+            document.getElementById('resultsSection').style.display = 'none';
+            document.getElementById('errorSection').style.display = 'none';
+            document.getElementById('submitBtn').disabled = true;
+            try {
+                const response = await fetch('/api/analyze', { method: 'POST', body: formData });
+                const jobInfo = await response.json();
+                if (!response.ok) { throw new Error(jobInfo.detail || 'Upload failed'); }
+                const jobId = jobInfo.job_id;
+                await pollJobStatus(jobId);
+            } catch (error) {
+                updateStep(1, 'failed');
+                showError(['Network error: ' + error.message]);
+                document.getElementById('submitBtn').disabled = false;
+            }
+        }
+        async function pollJobStatus(jobId) {
+            const pollInterval = 2000;
+            const maxPolls = 150;
+            let pollCount = 0;
+            updateStep(1, 'in-progress');
+            const poll = async () => {
+                try {
+                    const response = await fetch(`/api/jobs/${jobId}`);
+                    const job = await response.json();
+                    if (!response.ok) { throw new Error(job.detail || 'Failed to get job status'); }
+                    if (job.status === 'running') {
+                        if (pollCount < 5) updateStep(1, 'in-progress');
+                        else if (pollCount < 10) updateStep(1, 'completed') || updateStep(2, 'in-progress');
+                        else if (pollCount < 15) updateStep(2, 'completed') || updateStep(3, 'in-progress');
+                        else if (pollCount < 20) updateStep(3, 'completed') || updateStep(4, 'in-progress');
+                        else if (pollCount < 25) updateStep(4, 'completed') || updateStep(5, 'in-progress');
+                        pollCount++;
+                        setTimeout(poll, pollInterval);
+                    } else if (job.status === 'done') {
+                        updateStep(5, 'completed');
+                        if (job.result) { displayResults(job.result); } else { showError(['Job completed but no results available']); }
+                        document.getElementById('submitBtn').disabled = false;
+                    } else if (job.status === 'failed') {
+                        updateStep(5, 'failed');
+                        showError([job.error || 'Processing failed']);
+                        document.getElementById('submitBtn').disabled = false;
+                    } else if (pollCount >= maxPolls) {
+                        updateStep(5, 'failed');
+                        showError(['Processing timeout']);
+                        document.getElementById('submitBtn').disabled = false;
+                    } else {
+                        pollCount++;
+                        setTimeout(poll, pollInterval);
+                    }
+                } catch (error) {
+                    updateStep(5, 'failed');
+                    showError(['Polling error: ' + error.message]);
+                    document.getElementById('submitBtn').disabled = false;
+                }
+            };
+            poll();
+        }
+        function updateStep(step, status) {
+            const el = document.getElementById('step' + step);
+            el.className = 'progress-step ' + status;
+            const icon = status === 'completed' ? '✅' : status === 'failed' ? '❌' : status === 'in-progress' ? '⏳' : '⏳';
+            el.querySelector('span').textContent = icon;
+        }
+        function displayResults(result) {
+            document.getElementById('resultsSection').style.display = 'block';
+            const reportHtml = `<h2>Data Report</h2><p><strong>Description:</strong> ${result.profile_summary || 'N/A'}</p><h3 style="margin-top: 15px;">Preprocessing Steps Applied:</h3><ul style="margin-left: 20px; margin-top: 10px;">${(result.cleaning_log || []).map(log => `<li>${log}</li>`).join('')}</ul>`;
+            document.getElementById('reportSection').innerHTML = reportHtml;
+            const chartsHtml = (result.charts || []).map(chart => `<div class="chart-card"><img src="data:image/png;base64,${chart.image_base64}" alt="${chart.title}"><h3>${chart.title}</h3><p>${chart.reason || ''}</p></div>`).join('');
+            document.getElementById('chartsGrid').innerHTML = chartsHtml;
+            if (result.cleaned_data_urls) {
+                document.getElementById('downloadCsv').href = result.cleaned_data_urls.csv;
+                document.getElementById('downloadXlsx').href = result.cleaned_data_urls.xlsx;
+            }
+        }
+        function showError(errors) {
+            document.getElementById('errorSection').style.display = 'block';
+            document.getElementById('errorSection').innerHTML = '<strong>Error:</strong><br>' + errors.join('<br>');
+        }
+        function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
+    </script>
+</body>
+</html>
